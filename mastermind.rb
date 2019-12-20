@@ -1,5 +1,7 @@
 CODE_LENGTH = 4
 
+NUM_COLORS = 6
+
 COLORS = [
   :EM,
   :BK,
@@ -19,6 +21,12 @@ class Row
     code = []
     guess.length.times{|index| code << COLORS[guess[index].to_i]}
     code
+  end
+
+  def self.convert_code_to_string code
+    guess = ""
+    code.length.times{|color| guess << COLORS.find_index(color).to_s}
+    guess
   end
 
   def initialize
@@ -41,7 +49,7 @@ class CodeRow < Row
   def initialize code
     @pegs = Row.convert_string_to_code(code)
   end
-  
+
   def empty?
     pegs.all? {|peg| peg == :EM}
   end
@@ -71,10 +79,6 @@ class Board
     @answerRow = AnswerRow.new(answerRow)
     @guessesUsed = 0
   end
-
-  def set_answer code
-  end
-
 
   def add_code_row guess
     codeRows[guesses_used] = CodeRow.new(guess)
@@ -147,7 +151,7 @@ end
 
 class Player
 
-  def guess
+  def guess board
   end
 
   def make_code
@@ -158,7 +162,7 @@ end
 class HumanPlayer < Player
 
 
-  def guess
+  def guess board
       human_prompt "guess"
   end
 
@@ -204,13 +208,23 @@ end
 
 class ComputerPlayer < Player
 
-  attr_reader :solution_space
+  attr_reader :solutionSpace
   attr_accessor :board
 
-  def guess
-    #update_solution_space
+  def initialize
+    @solutionSpace = []
+  end
 
-    #select_answer
+  def guess board
+    if board.guesses_used == 0
+      create_solution_space
+      #wikipedia said this was a good guess to start with...
+      return "1122"
+    else
+      update_solution_space board
+      return solutionSpace.sample
+    end
+
   end
 
   def make_code
@@ -222,6 +236,66 @@ class ComputerPlayer < Player
   def to_s
     "computer"
   end
+
+  private
+
+  def create_solution_space
+    NUM_COLORS.times{|index0|
+      NUM_COLORS.times{|index1|
+        NUM_COLORS.times{|index2|
+          NUM_COLORS.times{|index3|
+        solutionSpace << ((index0+1).to_s << (index1+1).to_s << (index2+1).to_s << (index3+1).to_s)
+          }
+        }
+      }
+    }
+  end
+
+  def update_solution_space board
+    lastGuess = board.codeRows[board.guesses_used-1].dup.pegs
+    lastAnswer = board.keyRows[board.guesses_used-1].dup.pegs
+
+    solutionSpace.filter! {|solution|
+      if matches(Row.convert_string_to_code(solution), lastGuess) == [lastAnswer.count(:BK),lastAnswer.count(:WH)]
+        true
+      end
+    }
+  end
+
+  def matches solution, lastGuess
+    #return an array of [blackMatches, whiteMatches] indicating the number of each
+    blackMatches = 0
+    whiteMatches = 0
+    emptyMatches = 0
+    
+    whiteSolution = []
+    solution.each{|item| whiteSolution << item.dup}
+    whiteGuess = []
+    lastGuess.each{|item| whiteGuess << item.dup}
+
+
+    CODE_LENGTH.times{|index|
+      #for black matches, check if the exact indices match
+      if solution[index] == lastGuess[index]
+        blackMatches += 1
+        whiteSolution[index] = :NA
+        whiteGuess[index] = :NA
+      end
+    }
+
+    #for white matches: There can't be more than 2 for any color (there would have been a black match).  
+    #Take what's left after black matches are done, and see if player guessed the right color in the wrong place.
+    COLORS.each{ |color|
+      if whiteSolution.count(color) == 2 and whiteGuess.count(color) >= 2
+        whiteMatches += 2
+      elsif whiteSolution.count(color) >= 1 and whiteGuess.count(color) >= 1
+        whiteMatches += 1
+      end
+    }
+
+    return [blackMatches,whiteMatches]
+  end
+
 end
 
 class Game
@@ -236,7 +310,9 @@ class Game
 
 
   def self.create
-    Game.new 12, HumanPlayer.new, ComputerPlayer.new
+    breaker = self.who_is_codebreaker
+    maker = breaker.class == HumanPlayer ? ComputerPlayer.new : HumanPlayer.new
+    Game.new 12, breaker, maker
   end
 
 
@@ -248,9 +324,9 @@ class Game
 
       puts "#{codeBreaker}, you have #{board.guesses_left} guesses left."
 
-      current_guess = codeBreaker.guess
+      current_guess = codeBreaker.guess(board)
 
-      respond_to_guess(current_guess,)
+      respond_to_guess(current_guess)
 
       board.guessesUsed = board.guesses_used + 1
     end
@@ -268,6 +344,28 @@ class Game
     board.add_code_row(guess)
     keyCode = board.check_code
     board.add_key_row(keyCode)
+  end
+
+  private
+
+  def self.who_is_codebreaker
+    loop do
+      puts "Who will be the codebreaker?  '1' for human, '2' for computer"
+      begin
+        codeBreaker = gets.chomp.to_i
+        if codeBreaker == 1
+          puts "you have selected 'human' as the codebreaker."
+          return HumanPlayer.new
+        elsif codeBreaker == 2
+          puts "you have selected 'computer' as the codebreaker."
+          return ComputerPlayer.new
+        else
+          puts "you need to enter 1 or 2."
+        end
+      rescue
+        puts "you need to enter 1 or 2."
+      end
+    end
   end
 end
 
